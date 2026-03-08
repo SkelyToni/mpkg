@@ -76,6 +76,9 @@ int init(const char *root)
     // PATH/profiles
     if (join_path(p, sizeof(p), path, "profiles") != 0) { perror("join_path profiles"); return 1; }
     if (mkdir_p(p, 0755) != 0) { perror("mkdir_p profiles"); return 1; }
+    // PATH/profiles/bin
+    if (join_path(p, sizeof(p), path, "profiles/bin") != 0) { perror("join_path profiles/bin"); return 1; }
+    if (mkdir_p(p, 0755) != 0) { perror("mkdir_p profiles/bin"); return 1; }
     // PATH/var
     if (join_path(p, sizeof(p), path, "var") != 0) { perror("join_path var"); return 1; }
     if (mkdir_p(p, 0755) != 0) { perror("mkdir_p var"); return 1; }

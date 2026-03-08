@@ -25,7 +25,7 @@ int db(char *name, char *version, char *hash, char *root_path);
 
 int install(char *mpkg_path)
 {
-    // Open and .mpkg file
+    // Open.mpkg file
     FILE *path = fopen(mpkg_path, "r");
     if(path == NULL)
     {
@@ -35,12 +35,20 @@ int install(char *mpkg_path)
     // Struct buffer for parsing
     struct mpkg sbuffer;
 
+    // Open the database
+    char root[4096];
+    if (read_root(root, sizeof(root)) != 0) return 1;
+    char db_path[4096];
+    if (join_path(db_path, sizeof(db_path), root, "var/db/packages.db") != 0) return 1;
+    if (db_open(db_path) != 0) return 1;
+
     // Parse the file
     parse(path, &sbuffer);
     // Return if package already installed
-    if(db_exists(sbuffer.name) == 0)
+    if(db_package_exists(sbuffer.name) == 0)
     {
         fprintf(stderr, "Package already installed.");
+        db_close();
         return 2;
     }
     // Fetch the compressed file
@@ -48,40 +56,47 @@ int install(char *mpkg_path)
     if (fetch(sbuffer.url, &archive) != 0)
     {
         fprintf(stderr, "Failed to fetch.");
+        db_close();
         return 3;
     }
     // Compare checksums
     if (checksum(archive, sbuffer.sha256) != 0)
     {
         fprintf(stderr, "Checksums don't match.");
+        db_close();
         return 4;
     }
-    fclose(archive);
     // Create store path
     char store_path[4096];
     if(store(sbuffer.name, sbuffer.version, sbuffer.sha256, store_path) != 0)
     {
         fprintf(stderr, "Unable to create store path.");
+        db_close();
         return 5;
     }
     // Uncompress the archive
     if (uncompress(archive, store_path) != 0)
     {
         fprintf(stderr, "Unable to uncompress the archive.");
+        db_close();
         return 6; 
     }
+    fclose(archive);
     // Syslink the profile 
     if (profile(store_path) != 0)
     {
         fprintf(stderr, "Unable to syslink the profile.");
+        db_close();
         return 7; 
     }
     // Update DB
     if (db(sbuffer.name, sbuffer.version, sbuffer.sha256, store_path) != 0)
     {
         fprintf(stderr, "Unable to update database.");
+        db_close();
         return 8;
     }
+    db_close();
     return 0;
 }
 

@@ -1,17 +1,20 @@
 #define _POSIX_C_SOURCE 200809L
 
+#include "mpkg.h"
+
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <ftw.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <errno.h>
-#include <mpkg.h>
 #include <sqlite3.h>
+#include <dirent.h> 
 
 // Path utils
-static int join_path(char *out, size_t outsz, const char *a, const char *b);
-static int mkdir_p(const char *path, mode_t mode);
+int join_path(char *out, size_t outsz, const char *a, const char *b);
+int mkdir_p(const char *path, mode_t mode);
 // Config utils
 int read_config(const char *key, char *out, size_t outsz);
 int read_root(char *out, size_t outsz);
@@ -22,11 +25,15 @@ int db_package_exists(const char *name);
 int db_add_package(const char *name, const char *version, const char *hash, const char *install_path);
 int db_remove_package(const char *name);
 int db_list_packages();
-
+int db_get_install_path(const char *name, char *out, size_t outsz);
+int get_all_store_paths(char ***paths, int *count);
+// Folder utils
+static int rm_entry(const char *path, const struct stat *sb, int typeflag, struct FTW *ftwbuf);
+int rm_rf(const char *path);
 
 static sqlite3 *db = NULL;
 
-static int join_path(char *out, size_t outsz, const char *a, const char *b)
+int join_path(char *out, size_t outsz, const char *a, const char *b)
 {
     // Safely make path string
     int n = snprintf(out, outsz, "%s/%s", a, b);
@@ -38,7 +45,7 @@ static int join_path(char *out, size_t outsz, const char *a, const char *b)
     return 0;
 }
 
-static int mkdir_p(const char *path, mode_t mode)
+int mkdir_p(const char *path, mode_t mode)
 {
     // Recursive directory helper function
     if (!path || path[0] == '\0') {
@@ -324,5 +331,86 @@ int db_list_packages()
         printf("No packages installed.\n");
 
     sqlite3_finalize(stmt);
+    return 0;
+}
+
+int db_get_install_path(const char *name, char *out, size_t outsz)
+{
+    const char *sql = "SELECT install_path FROM packages WHERE name = ?;";
+    sqlite3_stmt *stmt;
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return 1;
+    sqlite3_bind_text(stmt, 1, name, -1, SQLITE_STATIC);
+
+    int rc = 1;
+    if (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        const char *path = (const char *)sqlite3_column_text(stmt, 0);
+        snprintf(out, outsz, "%s", path);
+        rc = 0;
+    }
+
+    sqlite3_finalize(stmt);
+    return rc;
+}
+
+int get_all_store_paths(char ***paths, int *count)
+{
+    char root[4096];
+    if (read_root(root, sizeof(root)) != 0) return 1;
+
+    char store[4096];
+    if (join_path(store, sizeof(store), root, "store") != 0) return 1;
+
+    DIR *dir = opendir(store);
+    if (!dir)
+    {
+        fprintf(stderr, "Failed to open store directory\n");
+        return 1;
+    }
+
+    int capacity = 16;
+    *count = 0;
+    *paths = malloc(capacity * sizeof(char *));
+    if (!*paths) return 1;
+
+    struct dirent *entry;
+    while ((entry = readdir(dir)) != NULL)
+    {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+            continue;
+
+        if (*count >= capacity)
+        {
+            capacity *= 2;
+            *paths = realloc(*paths, capacity * sizeof(char *));
+            if (!*paths) { closedir(dir); return 1; }
+        }
+
+        char full_path[4096];
+        join_path(full_path, sizeof(full_path), store, entry->d_name);
+        (*paths)[*count] = strdup(full_path);
+        (*count)++;
+    }
+
+    closedir(dir);
+    return 0;
+}
+
+static int rm_entry(const char *path, const struct stat *sb, int typeflag, struct FTW *ftwbuf)
+{
+    if (typeflag == FTW_DP)
+        return rmdir(path);
+    else
+        return remove(path);
+}
+
+int rm_rf(const char *path)
+{
+    if (nftw(path, rm_entry, 16, FTW_DEPTH | FTW_PHYS) != 0)
+    {
+        fprintf(stderr, "Failed to remove %s\n", path);
+        return 1;
+    }
     return 0;
 }
