@@ -22,7 +22,7 @@ int gc()
     // Get the database paths
     char **paths = NULL;
     int count = 0;
-    if(get_all_store_paths(&paths, &count) != 0)
+    if(db_get_all_install_paths(&paths, &count) != 0)
     {
         fprintf(stderr, "Failed to get a list of all store paths of the profile.\n");
         db_close();
@@ -55,6 +55,7 @@ int gc()
         if (!found)
         {
             // Delete the subdirectory
+            printf("Removing %s\n", dbuf);
             if(rm_rf(dbuf) != 0)
             {
                 fprintf(stderr, "Failed to remove subdirectory %s.\n", entry->d_name);

@@ -29,8 +29,8 @@ int db_package_exists(const char *name);
 int db_add_package(const char *name, const char *version, const char *hash, const char *install_path);
 int db_remove_package(const char *name);
 int db_list_packages();
-int get_all_store_paths(char ***paths, int *count);
 int db_get_install_path(const char *name, char *out, size_t outsz);
+int db_get_all_install_paths(char ***paths, int *count);
 
 // Commands
 int init(const char *root);

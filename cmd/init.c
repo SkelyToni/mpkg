@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE   
 
 #include "../mpkg.h"
 
@@ -127,7 +127,7 @@ if (!shell)
     else
     {
         char rc_path[4096];
-        char export_line[4096];
+        char export_line[8192];
 
         // Build the export line
         snprintf(export_line, sizeof(export_line), "\n# mpkg\nexport PATH=\"%s/profiles/bin:$PATH\"\n", path);
@@ -160,7 +160,7 @@ if (!shell)
     }
     done:
 
-    printf("Initialized mpkg under %s", path);
-    printf("Config file stored under %s/mpkg ", configp);
+    printf("Initialized mpkg under %s\n", path);
+    printf("Config file stored under %s/mpkg\n", configp);
     return 0;
 }

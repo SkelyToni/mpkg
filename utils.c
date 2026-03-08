@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE
 
 #include "mpkg.h"
 
@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <sqlite3.h>
+#include <unistd.h>
 #include <dirent.h> 
 
 // Path utils
@@ -26,7 +27,7 @@ int db_add_package(const char *name, const char *version, const char *hash, cons
 int db_remove_package(const char *name);
 int db_list_packages();
 int db_get_install_path(const char *name, char *out, size_t outsz);
-int get_all_store_paths(char ***paths, int *count);
+int db_get_all_install_paths(char ***paths, int *count);
 // Folder utils
 static int rm_entry(const char *path, const struct stat *sb, int typeflag, struct FTW *ftwbuf);
 int rm_rf(const char *path);
@@ -354,51 +355,10 @@ int db_get_install_path(const char *name, char *out, size_t outsz)
     return rc;
 }
 
-int get_all_store_paths(char ***paths, int *count)
-{
-    char root[4096];
-    if (read_root(root, sizeof(root)) != 0) return 1;
-
-    char store[4096];
-    if (join_path(store, sizeof(store), root, "store") != 0) return 1;
-
-    DIR *dir = opendir(store);
-    if (!dir)
-    {
-        fprintf(stderr, "Failed to open store directory\n");
-        return 1;
-    }
-
-    int capacity = 16;
-    *count = 0;
-    *paths = malloc(capacity * sizeof(char *));
-    if (!*paths) return 1;
-
-    struct dirent *entry;
-    while ((entry = readdir(dir)) != NULL)
-    {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
-            continue;
-
-        if (*count >= capacity)
-        {
-            capacity *= 2;
-            *paths = realloc(*paths, capacity * sizeof(char *));
-            if (!*paths) { closedir(dir); return 1; }
-        }
-
-        char full_path[4096];
-        join_path(full_path, sizeof(full_path), store, entry->d_name);
-        (*paths)[*count] = strdup(full_path);
-        (*count)++;
-    }
-
-    closedir(dir);
-    return 0;
-}
-
 static int rm_entry(const char *path, const struct stat *sb, int typeflag, struct FTW *ftwbuf)
 {
+    (void)sb;      // required by nftw signature, not needed here
+    (void)ftwbuf;  // required by nftw signature, not needed here
     if (typeflag == FTW_DP)
         return rmdir(path);
     else
@@ -412,5 +372,34 @@ int rm_rf(const char *path)
         fprintf(stderr, "Failed to remove %s\n", path);
         return 1;
     }
+    return 0;
+}
+
+int db_get_all_install_paths(char ***paths, int *count)
+{
+    const char *sql = "SELECT install_path FROM packages;";
+    sqlite3_stmt *stmt;
+
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, NULL) != SQLITE_OK) return 1;
+
+    int capacity = 16;
+    *count = 0;
+    *paths = malloc(capacity * sizeof(char *));
+    if (!*paths) return 1;
+
+    while (sqlite3_step(stmt) == SQLITE_ROW)
+    {
+        if (*count >= capacity)
+        {
+            capacity *= 2;
+            *paths = realloc(*paths, capacity * sizeof(char *));
+            if (!*paths) { sqlite3_finalize(stmt); return 1; }
+        }
+        const char *path = (const char *)sqlite3_column_text(stmt, 0);
+        (*paths)[*count] = strdup(path);
+        (*count)++;
+    }
+
+    sqlite3_finalize(stmt);
     return 0;
 }

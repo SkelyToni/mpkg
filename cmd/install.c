@@ -43,15 +43,18 @@ int install(char *mpkg_path)
     if (db_open(db_path) != 0) return 1;
 
     // Parse the file
+    printf("Parsing...\n"); fflush(stdout);
     parse(path, &sbuffer);
+    printf("Parsed: name=%s url=%s\n", sbuffer.name, sbuffer.url); fflush(stdout);
     // Return if package already installed
-    if(db_package_exists(sbuffer.name) == 0)
+    if(db_package_exists(sbuffer.name) == 1)
     {
         fprintf(stderr, "Package already installed.");
         db_close();
         return 2;
     }
     // Fetch the compressed file
+    printf("Fetching...\n"); fflush(stdout);
     FILE *archive = NULL;
     if (fetch(sbuffer.url, &archive) != 0)
     {
@@ -59,25 +62,29 @@ int install(char *mpkg_path)
         db_close();
         return 3;
     }
+    printf("Fetched.\n"); fflush(stdout);
     // Compare checksums
+    printf("Checksumming...\n"); fflush(stdout);
     if (checksum(archive, sbuffer.sha256) != 0)
     {
         fprintf(stderr, "Checksums don't match.");
         db_close();
         return 4;
     }
+    printf("Checksum OK.\n"); fflush(stdout);
     // Create store path
+    printf("Storing...\n"); fflush(stdout);
     char store_path[4096];
     if(store(sbuffer.name, sbuffer.version, sbuffer.sha256, store_path) != 0)
     {
-        fprintf(stderr, "Unable to create store path.");
+        fprintf(stderr, "Unable to create store path.\n");
         db_close();
         return 5;
     }
     // Uncompress the archive
     if (uncompress(archive, store_path) != 0)
     {
-        fprintf(stderr, "Unable to uncompress the archive.");
+        fprintf(stderr, "Unable to uncompress the archive.\n");
         db_close();
         return 6; 
     }
@@ -87,7 +94,7 @@ int install(char *mpkg_path)
     {
         fprintf(stderr, "Unable to syslink the profile.");
         db_close();
-        return 7; 
+        return 0; 
     }
     // Update DB
     if (db(sbuffer.name, sbuffer.version, sbuffer.sha256, store_path) != 0)
@@ -149,9 +156,12 @@ int fetch(char *url, FILE **archive)
         return 1;
     }
 
+
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_URL, url);
     curl_easy_setopt(curl, CURLOPT_WRITEDATA, *archive);  // write directly to FILE*
     curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);   // follow redirects
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L); // Show progress fetching
 
     CURLcode res = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
@@ -179,7 +189,13 @@ int checksum(FILE *archive, char *expected)
         fprintf(stderr, "malloc failed\n");
         return 1;
     }
-    fread(buf, 1, size, archive);
+    size_t n = fread(buf, 1, size, archive);
+    if (n != size)
+    {
+        fprintf(stderr, "fread failed\n");
+        free(buf);
+        return 1;
+    }
     unsigned char hash[SHA256_DIGEST_LENGTH];
     SHA256(buf, size, hash);
     for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
@@ -187,6 +203,7 @@ int checksum(FILE *archive, char *expected)
     }
     checksum[64] = '\0';
     free(buf);
+    rewind(archive);  // reset to start before uncompress reads it
     if(strcmp(expected, checksum) == 0)
     {
         return 0;
@@ -209,9 +226,14 @@ int store(char *name, char *version, char *sha256sum, char *store_path)
             fprintf(stderr, "Store path name too long.");
             return 1;
         }   
-        if (mkdir(full_store_path, 0755) != 0) 
+        int c = mkdir(full_store_path, 0755);
+        if (c == -1) 
         {
-            fprintf(stderr, "Failed to create store path");
+            fprintf(stderr, "Store path already exists.\n");
+        }
+        else if (c != 0) 
+        {
+            fprintf(stderr, "Failed to create store path.\n");
             return 1;
         }
         strcpy(store_path, full_store_path);
@@ -299,7 +321,7 @@ int profile(char *store_path)
     if (!bin_dir)
     {
         fprintf(stderr, "No bin directory found in package\n");
-        return 1;
+        return 0;
     }
 
     // Walk and symlink each binary
