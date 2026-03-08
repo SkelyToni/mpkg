@@ -2,10 +2,10 @@
 
 int help()
 {
-    printf("mpkg - eperimental functional package manager");
+    printf("mpkg - a small nix-like package manager");
     printf("Usage: \n");
     printf("mpkg init\n");
-    printf("mpkg build\n");
+    printf("mpkg init\n");
     printf("mpkg package <command>\n");
     return 0;
 }
