@@ -12,12 +12,13 @@
 #include <openssl/sha.h>
 #include <archive.h>
 #include <archive_entry.h>
+#include <errno.h>
 
 
 // Helper functions to install
 int parse(FILE *path, struct mpkg *sbuffer);
 int fetch(char *url, FILE **archive);
-int checksum(FILE *archive, char *expected);
+int verify_checksum(FILE *archive, char *expected);
 int store(char *name, char *version, char *sha256sum, char *store_path);
 int uncompress(FILE *archive, char *store_path);
 int profile(char *store_path);
@@ -65,7 +66,7 @@ int install(char *mpkg_path)
     printf("Fetched.\n"); fflush(stdout);
     // Compare checksums
     printf("Checksumming...\n"); fflush(stdout);
-    if (checksum(archive, sbuffer.sha256) != 0)
+    if (verify_checksum(archive, sbuffer.sha256) != 0)
     {
         fprintf(stderr, "Checksums don't match.");
         db_close();
@@ -139,16 +140,37 @@ int parse(FILE *path, struct mpkg *sbuffer)
     return 0;
 }
 
+// CC help for libcurl support
 int fetch(char *url, FILE **archive)
 {
     // Create a temp file to write to
     *archive = tmpfile();
     if (*archive == NULL)
     {
-        fprintf(stderr, "Failed to create temp file.\n");
+        fprintf(stderr, "Failed to create temp file.%s\n" , strerror(errno));
         return 1;
     }
 
+    // Handle local file:// URLs
+    if (strncmp(url, "file://", 7) == 0)
+    {
+        const char *local_path = url + 7;
+        FILE *f = fopen(local_path, "rb");
+        if (!f)
+        {
+            fprintf(stderr, "Failed to open local file: %s\n", local_path);
+            return 1;
+        }
+        char buf[4096];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), f)) > 0)
+            fwrite(buf, 1, n, *archive);
+        fclose(f);
+        rewind(*archive);
+        return 0;
+    }
+
+    // Otherwise use curl for https:// etc.
     CURL *curl = curl_easy_init();
     if (!curl)
     {
@@ -156,12 +178,11 @@ int fetch(char *url, FILE **archive)
         return 1;
     }
 
-
     curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 10L);
     curl_easy_setopt(curl, CURLOPT_URL, url);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, *archive);  // write directly to FILE*
-    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);   // follow redirects
-    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L); // Show progress fetching
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, *archive);
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_NOPROGRESS, 0L);
 
     CURLcode res = curl_easy_perform(curl);
     curl_easy_cleanup(curl);
@@ -172,46 +193,8 @@ int fetch(char *url, FILE **archive)
         return 1;
     }
 
-    // Seek back to start so callers can read from the beginning
     rewind(*archive);
     return 0;
-}
-int checksum(FILE *archive, char *expected)
-{
-    // Get the file size 
-    fseek(archive, 0, SEEK_END);  // seek to end
-    size_t size = ftell(archive); // position = file size in bytes
-    rewind(archive);              // seek back to start before reading
-    // Compute checksum
-    char checksum[65];
-    unsigned char *buf = malloc(size);
-    if (!buf) {
-        fprintf(stderr, "malloc failed\n");
-        return 1;
-    }
-    size_t n = fread(buf, 1, size, archive);
-    if (n != size)
-    {
-        fprintf(stderr, "fread failed\n");
-        free(buf);
-        return 1;
-    }
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256(buf, size, hash);
-    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
-        sprintf(checksum + (i * 2), "%02x", hash[i]);
-    }
-    checksum[64] = '\0';
-    free(buf);
-    rewind(archive);  // reset to start before uncompress reads it
-    if(strcmp(expected, checksum) == 0)
-    {
-        return 0;
-    }
-    else
-    {
-        return 1;
-    }
 }
 
 int store(char *name, char *version, char *sha256sum, char *store_path)
@@ -245,17 +228,12 @@ int uncompress(FILE *archive, char *store_path)
 {
     struct archive *a = archive_read_new();
     struct archive *out = archive_write_disk_new();
-
-    // Support all common formats and filters automatically
     archive_read_support_format_all(a);
     archive_read_support_filter_all(a);
-
-    // Preserve permissions and timestamps when extracting
     archive_write_disk_set_options(out,
         ARCHIVE_EXTRACT_PERM |
         ARCHIVE_EXTRACT_TIME);
 
-    // Open archive from FILE*
     int fd = fileno(archive);
     if (archive_read_open_fd(a, fd, 4096) != ARCHIVE_OK)
     {
@@ -266,9 +244,16 @@ int uncompress(FILE *archive, char *store_path)
     struct archive_entry *entry;
     while (archive_read_next_header(a, &entry) == ARCHIVE_OK)
     {
+        // Strip the top-level directory component
+        const char *entry_path = archive_entry_pathname(entry);
+        const char *slash = strchr(entry_path, '/');
+        if (!slash) continue;           // skip the top-level dir entry itself
+        entry_path = slash + 1;
+        if (*entry_path == '\0') continue; // skip entries that are just "topdir/"
+
         // Redirect extraction to store path
         char full_path[4096];
-        snprintf(full_path, 4096, "%s/%s", store_path, archive_entry_pathname(entry));
+        snprintf(full_path, 4096, "%s/%s", store_path, entry_path);
         archive_entry_set_pathname(entry, full_path);
 
         if (archive_write_header(out, entry) != ARCHIVE_OK)
@@ -277,7 +262,6 @@ int uncompress(FILE *archive, char *store_path)
             return 1;
         }
 
-        // Copy data blocks
         const void *buf;
         size_t size;
         la_int64_t offset;
@@ -359,4 +343,34 @@ int db(char *name, char *version, char *hash, char *root_path)
         return 1;
     }
     
+}
+
+int verify_checksum(FILE *archive, char *expected)
+{
+    fseek(archive, 0, SEEK_END);
+    size_t size = ftell(archive);
+    rewind(archive);
+
+    char hash_str[65];
+    unsigned char *buf = malloc(size);
+    if (!buf) {
+        fprintf(stderr, "malloc failed\n");
+        return 1;
+    }
+    size_t n = fread(buf, 1, size, archive);
+    if (n != size)
+    {
+        fprintf(stderr, "fread failed\n");
+        free(buf);
+        return 1;
+    }
+    unsigned char hash[SHA256_DIGEST_LENGTH];
+    SHA256(buf, size, hash);
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++)
+        sprintf(hash_str + (i * 2), "%02x", hash[i]);
+    hash_str[64] = '\0';
+    free(buf);
+    rewind(archive);
+
+    return strcmp(expected, hash_str) == 0 ? 0 : 1;
 }

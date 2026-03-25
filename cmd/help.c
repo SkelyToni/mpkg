@@ -2,7 +2,7 @@
 
 int help()
 {
-    printf("mpkg - a small nix-like package manager");
+    printf("mpkg - a small nix-like package manager\n");
     printf("Usage: \n");
     printf("mpkg init\n");
     printf("mpkg install <path-to-package-declaration>\n");
