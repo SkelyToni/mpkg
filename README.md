@@ -49,7 +49,9 @@ mpkg init
 mpkg init /path/to/root
 ```
 
-This creates the full directory structure under `~/.mpkg`, initializes the SQLite package database, and automatically adds `~/.mpkg/profiles/bin` to your shell's PATH by appending an export line to your shell's rc file (`.bashrc`, `.zshrc`, or `config.fish`). Run `source ~/.bashrc` or restart your shell after initializing.
+This creates the full directory structure, initializes the SQLite package database, and automatically adds the profile bin directory to your shell's PATH by appending an export line to your shell's rc file (`.bashrc`, `.zshrc`, or `config.fish`). Run `source ~/.bashrc` or restart your shell after initializing.
+
+By default mpkg initializes under `~/.mpkg` and stores its config at `~/.config/mpkg/config`. If a custom root is specified, the config file will point there instead, allowing multiple isolated mpkg environments on the same machine.
 
 ### Install a package
 ```bash
