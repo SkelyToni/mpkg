@@ -1,0 +1,4 @@
+name=hello
+version=2.12.2
+url=file:///home/toni/Development/mpkg/test/hello-2.12.2.tar.gz
+sha256sum=9e956691de282a8ac3f3ca6ec839b37d9a105d5593005ac5b85af7b58e3b4d4e

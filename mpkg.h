@@ -3,12 +3,13 @@
 
 #include <stddef.h>
 #include <sys/types.h>
+#include <stdio.h>
 
 // Struct
 struct mpkg
 {
     char name[4096];
-    char version[4];
+    char version[32];
     char url[4096];
     char sha256[65];
 };
@@ -21,6 +22,9 @@ int rm_rf(const char *path);
 // Config utilities
 int read_config(const char *key, char *out, size_t outsz);
 int read_root(char *out, size_t outsz);
+
+// Package utils
+int parse(FILE *path, struct mpkg *sbuffer);
 
 // Database
 int db_open(const char *db_path);
@@ -39,6 +43,7 @@ int list(void);
 int help();
 int remove_package(const char *name);
 int gc(void);
+int update(char *mpkg_path);
 
 
 #endif

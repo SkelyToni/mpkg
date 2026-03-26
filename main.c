@@ -57,5 +57,13 @@ int main(int argc, char *argv[])
         }
         return gc();
     }
+    else if (strcmp(argv[1], "update") == 0) 
+    {
+        if (argc < 3) {
+            fprintf(stderr, "Usage: mpkg update <file.mpkg>\n");
+            return 1;
+        }
+        return update(argv[2]);
+    }
 }
 

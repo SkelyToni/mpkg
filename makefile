@@ -2,7 +2,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -D_GNU_SOURCE
 LDFLAGS = -lsqlite3 -lcurl -lssl -lcrypto -larchive
 
-SRCS = main.c utils.c cmd/gc.c cmd/help.c cmd/init.c cmd/install.c cmd/list.c cmd/remove.c
+SRCS = main.c utils.c cmd/gc.c cmd/help.c cmd/init.c cmd/install.c cmd/list.c cmd/remove.c cmd/update.c
 TARGET = mpkg
 
 $(TARGET): $(SRCS)

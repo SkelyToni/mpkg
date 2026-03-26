@@ -53,6 +53,13 @@ mpkg install path/to/package.mpkg
 
 Packages can be fetched from the network or installed from a local file — see the `.mpkg file format` section below.
 
+### Update a package
+```bash
+mpkg update path/to/package.mpkg
+```
+
+Removes the currently installed version from the profile and database, then installs the new version from the manifest. The old store entry is kept until you run `mpkg gc`, following the same Nix-inspired philosophy as `remove`.
+
 ### List installed packages
 ```bash
 mpkg list

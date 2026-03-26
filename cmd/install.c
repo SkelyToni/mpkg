@@ -231,7 +231,6 @@ int uncompress(FILE *archive, char *store_path)
     archive_read_support_format_all(a);
     archive_read_support_filter_all(a);
     archive_write_disk_set_options(out,
-        ARCHIVE_EXTRACT_PERM |
         ARCHIVE_EXTRACT_TIME);
 
     int fd = fileno(archive);
